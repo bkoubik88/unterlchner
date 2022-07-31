@@ -1,0 +1,27 @@
+
+
+
+.key input{
+
+    font-size: 2rem!important;
+}
+
+.key span{
+    font-size: 1.3rem!important;
+
+}
+
+.key{
+    margin-top: 20%!important;
+}
+
+.key label{
+    font-size: 1.6rem!important;
+
+}
+
+.css-14s5rfu-MuiFormLabel-root-MuiInputLabel-root:focus {
+
+    color: beige!important;
+
+}
