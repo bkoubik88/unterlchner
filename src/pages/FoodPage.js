@@ -7,233 +7,286 @@ import {
   FormControl,
   FormControlLabel,
   FormLabel,
+  Grid,
   Radio,
   RadioGroup,
+  Snackbar,
   Stack,
   Typography,
 } from "@mui/material";
 import IconButton from "@mui/material/IconButton";
+import { useIdleTimer } from "react-idle-timer";
+import { format } from "date-fns";
 
 import { Box, Container } from "@mui/system";
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import AddIcon from "@mui/icons-material/Add";
-import RemoveIcon from "@mui/icons-material/Remove";
+import React, { useState, useEffect } from "react";
+
+import HeaderNav from "../components/HeaderNav";
+import { useSelector, useDispatch } from "react-redux";
+import { useNavigate } from "react-router-dom";
+import CloseIcon from "@mui/icons-material/Close";
+import { logout } from "../redux/userSlice";
+import { motion, AnimatePresence } from "framer-motion";
+
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  collection,
+  setDoc,
+  getDocs,
+  updateDoc,
+} from "firebase/firestore";
+import Filter from "../components/Filter";
+import { ka } from "date-fns/locale";
+import Food from "../components/Food";
+
+const timeout = 60000;
 
 export default function FoodPage() {
+  const db = getFirestore();
+  const navigate = useNavigate();
+  const { currentUser } = useSelector((state) => state.user);
+  const [filter, setFilter] = useState([]);
   const [karotten, setKarotten] = useState(0);
-  const [kaese, setKaese] = useState(0);
-  const [latte, setLatte] = useState(0);
+  const [artikel, setArtikel] = useState([]);
+  const [userBestellung, setUserBestellung] = useState([]);
+
+  const [remaining, setRemaining] = useState(timeout);
+  const [elapsed, setElapsed] = useState(0);
+  const [lastActive, setLastActive] = useState(+new Date());
+  const [isIdle, setIsIdle] = useState(false);
+  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [snackBarMessage, setSnackBarMessage] = useState("");
+  const [kategorie, setKategorie] = useState("Alles");
+
+  const handleOnActive = () => setIsIdle(false);
+  const handleOnIdle = () => setIsIdle(true);
+  const dispatch = useDispatch();
+
+  const handleClose = (event, reason) => {
+    if (reason === "clickaway") {
+      return;
+    }
+
+    setOpenSnackbar(false);
+  };
+
+  const action = (
+    <React.Fragment>
+      <IconButton
+        size="small"
+        aria-label="close"
+        color="inherit"
+        onClick={handleClose}
+      >
+        <CloseIcon fontSize="small" />
+      </IconButton>
+    </React.Fragment>
+  );
+
+  const { getRemainingTime, getLastActiveTime, getElapsedTime } = useIdleTimer({
+    timeout,
+    onActive: handleOnActive,
+    onIdle: handleOnIdle,
+  });
+
+  useEffect(() => {
+    setRemaining(getRemainingTime());
+    setLastActive(getLastActiveTime());
+    setElapsed(getElapsedTime());
+
+    setInterval(() => {
+      setRemaining(getRemainingTime());
+      setLastActive(getLastActiveTime());
+      setElapsed(getElapsedTime());
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    const ladeFrühstücksdaten = async () => {
+      setArtikel([]);
+      setFilter([]);
+      const snapshot = collection(db, "fruehstueck");
+      const querySnapshot = await getDocs(snapshot);
+      querySnapshot.forEach((doc) => {
+        setArtikel((prev) => [...prev, doc.data()]);
+        setFilter((prev) => [...prev, doc.data()]);
+      });
+    };
+    ladeFrühstücksdaten();
+  }, []);
+
+  useEffect(() => {
+    if (isIdle) {
+      dispatch(logout());
+      navigate("/");
+    }
+  }, [isIdle]);
+
+  useEffect(() => {
+    const hatUserSchonEinmalBestellt = async () => {
+      const docRef = doc(db, "orders", currentUser.room.toString());
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        setUserBestellung([docSnap.data()]);
+      } else {
+        setUserBestellung([]);
+      }
+    };
+
+    hatUserSchonEinmalBestellt();
+  }, []);
+
+  useEffect(() => {
+    const ladeDaten = () => {
+      if (userBestellung.length) {
+        setKarotten(userBestellung[0].brötchen);
+      } else {
+        setKarotten(0);
+      }
+    };
+
+    ladeDaten();
+  }, [userBestellung]);
+
+  const bestellungAufgeben = async () => {
+    const docRef = doc(db, "orders", currentUser.room.toString());
+    const docSnap = await getDoc(docRef);
+    const ordersRef = collection(db, "orders");
+
+    if (docSnap.exists()) {
+      await updateDoc(doc(ordersRef, currentUser.room.toString()), {
+        brötchen: karotten,
+      });
+
+      setSnackBarMessage("Vielen Dank - Ihre Änderungen haben uns erreicht!");
+      setOpenSnackbar(true);
+
+      setTimeout(() => {
+        dispatch(logout());
+        navigate("/");
+      }, 5000);
+    } else {
+      await setDoc(doc(ordersRef, currentUser.room.toString()), {
+        brötchen: karotten,
+      });
+
+      setSnackBarMessage("Vielen Dank -Ihre Bestellung hat uns erreicht!");
+      setOpenSnackbar(true);
+
+      setTimeout(() => {
+        dispatch(logout());
+        navigate("/");
+      }, 6000);
+    }
+  };
 
   return (
-    <Container sx={{ marginBottom: 15 }}>
-      <Link to="/">
-        <Box>
-          <img
-            src={process.env.PUBLIC_URL + "/logo.png"}
-            alt="Unterlechner"
-          ></img>
-        </Box>
-      </Link>
+    <>
+      <HeaderNav></HeaderNav>
+      <Container maxWidth="sm" sx={{ marginBottom: 15 }}>
+        <Grid container spacing={2} sx={{ marginTop: "10%" }}>
+          <Grid item xs={12}>
+            <Typography variant="h6" sx={{ mb: 5 }} align={"center"}>
+              Wählen Sie hier Ihr morgendliches Frühstück aus
+            </Typography>
+          </Grid>
+          <Grid item xs={12} align={"center"}>
+            <FormControl sx={{ marginBottom: 5 }}>
+              <FormLabel id="demo-row-radio-buttons-group-label">
+                Routine
+              </FormLabel>
+              <RadioGroup
+                row
+                aria-labelledby="demo-row-radio-buttons-group-label"
+                name="row-radio-buttons-group"
+              >
+                <FormControlLabel
+                  value="female"
+                  control={<Radio />}
+                  label="Jedes mal neu zusammenstellen"
+                />
+                <FormControlLabel
+                  value="male"
+                  control={<Radio />}
+                  label="Routine behalten"
+                />
+              </RadioGroup>
+            </FormControl>
+          </Grid>
 
-      <Stack spacing={2} alignItems={"center"} sx={{ mt: 10 }}>
-        <Typography variant="h6" sx={{ mb: 5 }}>
-          Wählen Sie hier Ihr morgendliches Frühstück aus
-        </Typography>
-
-        <Box>
-          <FormControl sx={{ marginBottom: 5 }}>
-            <FormLabel id="demo-row-radio-buttons-group-label">
-              Routine
-            </FormLabel>
-            <RadioGroup
-              row
-              aria-labelledby="demo-row-radio-buttons-group-label"
-              name="row-radio-buttons-group"
+          <Grid item xs={12}>
+            <Typography
+              variant="h5"
+              gutterBottom
+              fontWeight={"bold"}
+              sx={{ marginBottom: 3 }}
             >
-              <FormControlLabel
-                value="female"
-                control={<Radio />}
-                label="Jedes mal neu zusammenstellen"
-              />
-              <FormControlLabel
-                value="male"
-                control={<Radio />}
-                label="Routine behalten"
-              />
-            </RadioGroup>
-          </FormControl>
-        </Box>
+              Auswahl
+            </Typography>
+            <Typography variant="subtitle1" gutterBottom>
+              Filter
+            </Typography>
+            <Filter
+              artikel={artikel}
+              setFilter={setFilter}
+              kategorie={kategorie}
+              setKategorie={setKategorie}
+            ></Filter>
 
-        <Box sx={{ width: "70%" }}>
-          <Typography
-            variant="h5"
-            gutterBottom
-            fontWeight={"bold"}
-            sx={{ marginBottom: 3 }}
+            <Box
+              sx={{ display: "flex", justifyContent: "flex-end", marginTop: 3 }}
+            >
+              <Typography variant="h6" component={"div"}>
+                {filter.length} Artikel
+              </Typography>
+            </Box>
+
+            <Box mt={2}>
+              <Divider></Divider>
+            </Box>
+            <motion.div layout>
+              <AnimatePresence>
+                <Stack spacing={2}>
+                  {filter?.map((art, idx) => {
+                    return (
+                      <Food
+                        key={idx}
+                        karotten={karotten}
+                        setKarotten={setKarotten}
+                        art={art}
+                      ></Food>
+                    );
+                  })}
+                </Stack>
+              </AnimatePresence>
+            </motion.div>
+          </Grid>
+        </Grid>
+        <Box sx={{ mt: 5 }}>
+          <Button
+            onClick={() => bestellungAufgeben()}
+            sx={{
+              width: "100%",
+              backgroundColor: "#4b474d",
+              "&:hover": { backgroundColor: "#4b474d" },
+            }}
+            variant="contained"
           >
-            Auswahl
-          </Typography>
-          <Stack spacing={5}>
-            <Card
-              sx={{ display: "flex", border: "1px solid #bb9a37", padding: 2 }}
-            >
-              <CardMedia
-                component="img"
-                sx={{ width: 151 }}
-                image={process.env.PUBLIC_URL + "/karottenb.jpg"}
-                alt="Karottenbrot"
-              />
-              <Box
-                sx={{ display: "flex", flexDirection: "column", width: "100%" }}
-              >
-                <CardContent sx={{ flex: "1 0 auto" }}>
-                  <Typography component="div" variant="h5">
-                    Karottenbrötchen
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="text.secondary"
-                    component="div"
-                  >
-                    Inhaltsstoffe: Vitamin D1,B2
-                  </Typography>
-                </CardContent>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    pl: 1,
-                    pb: 1,
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() =>
-                      karotten > 0 ? setKarotten(karotten - 1) : setKarotten(0)
-                    }
-                  >
-                    <RemoveIcon fontSize="large"></RemoveIcon>
-                  </IconButton>
-
-                  <Typography variant="h5">{karotten}</Typography>
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() => setKarotten(karotten + 1)}
-                  >
-                    <AddIcon fontSize="large"></AddIcon>
-                  </IconButton>
-                </Box>
-              </Box>
-            </Card>
-            <Card
-              sx={{ display: "flex", border: "1px solid #bb9a37", padding: 2 }}
-            >
-              <CardMedia
-                component="img"
-                sx={{ width: 151 }}
-                image={process.env.PUBLIC_URL + "/bergkaese.jpg"}
-                alt="Bergkäse"
-              />
-              <Box
-                sx={{ display: "flex", flexDirection: "column", width: "100%" }}
-              >
-                <CardContent sx={{ flex: "1 0 auto" }}>
-                  <Typography component="div" variant="h5">
-                    Bergkäse
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="text.secondary"
-                    component="div"
-                  >
-                    Inhaltsstoffe: Milch, Wasser, Kräuter
-                  </Typography>
-                </CardContent>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    pl: 1,
-                    pb: 1,
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() =>
-                      kaese > 0 ? setKaese(kaese - 1) : setKaese(0)
-                    }
-                  >
-                    <RemoveIcon fontSize="large"></RemoveIcon>
-                  </IconButton>
-
-                  <Typography variant="h5">{kaese}</Typography>
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() => setKaese(kaese + 1)}
-                  >
-                    <AddIcon fontSize="large"></AddIcon>
-                  </IconButton>
-                </Box>
-              </Box>
-            </Card>
-            <Card
-              sx={{ display: "flex", border: "1px solid #bb9a37", padding: 2 }}
-            >
-              <CardMedia
-                component="img"
-                sx={{ width: 151 }}
-                image={process.env.PUBLIC_URL + "/latte.jpg"}
-                alt="Live from space album cover"
-              />
-              <Box
-                sx={{ display: "flex", flexDirection: "column", width: "100%" }}
-              >
-                <CardContent sx={{ flex: "1 0 auto" }}>
-                  <Typography component="div" variant="h5">
-                    Latte Macchiato
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="text.secondary"
-                    component="div"
-                  >
-                    Inhaltsstoffe: Milch, Kaffee
-                  </Typography>
-                </CardContent>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    pl: 1,
-                    pb: 1,
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() =>
-                      latte > 0 ? setLatte(latte - 1) : setLatte(0)
-                    }
-                  >
-                    <RemoveIcon fontSize="large"></RemoveIcon>
-                  </IconButton>
-
-                  <Typography variant="h5">{latte}</Typography>
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() => setLatte(latte + 1)}
-                  >
-                    <AddIcon fontSize="large"></AddIcon>
-                  </IconButton>
-                </Box>
-              </Box>
-            </Card>
-          </Stack>
+            Bestellung aufgeben
+          </Button>
         </Box>
-      </Stack>
-    </Container>
+        <Snackbar
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+          open={openSnackbar}
+          autoHideDuration={5000}
+          onClose={handleClose}
+          message={snackBarMessage}
+          action={action}
+        />
+      </Container>
+    </>
   );
 }
